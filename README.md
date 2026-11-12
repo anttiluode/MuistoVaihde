@@ -100,3 +100,16 @@ But another limit remains: if A and B contain persistent bit sets throughout a f
 The conceptual lineage includes [PerceptionLab](https://github.com/anttiluode/PerceptionLab), [GeometricNeuronOriginReview](https://github.com/anttiluode/GeometricNeuronOriginReview), [GeometricNeuronSurfaceListener (V26)](https://github.com/anttiluode/GeometricNeuronSurfaceListener), [GeometricNeuronV27](https://github.com/anttiluode/GeometricNeuronV27), [TurntableNeuron](https://github.com/anttiluode/TurntableNeuron), [BrainRailRoad](https://github.com/anttiluode/BrainRailRoad), and the user's **Slider2 Memory Lab**. `legacy_rings.py` comes from Fable's November 12 five/seven-cell ring experiment.
 
 Related established ideas include delay-line memory, associative memories/Hebbian plasticity, residue number representations and polychronization. The combination here is an experimental construction, not a priority or novelty claim.
+
+## V2 — Temporal feedback: the first self-driven chain (2026-11-12)
+
+**[Open the V2 offline ring laboratory](temporal.html)** · [Detailed protocol, results and boundaries](V2_TEMPORAL.md)
+
+A new **independent** seven-tick event loop learns *ordered* external observations `P → A → B → END`. After training, just the world seed `P` produces the self-generated arrivals `A@7`, `B@14`, `END@21`, then stops. Only actual world observations teach; an inconsistent world event interrupts the prediction instead of confirming it. No external signal is supplied after the initial P during replay.
+
+The Python implementation (`temporal_loop.py`) uses a short observed-event trace and a directed transition table; it does **not** show that V1's coincidence junction can infer order or that a native Geometric Neuron generates the events. Shuffled training replays the shuffled order, disconnecting feedback stops generation, and conflicting memories sharing A force an abstention. The missing next step is an independently retained context that separates those episodes.
+
+```sh
+python temporal_loop.py
+python -m unittest discover -v
+```

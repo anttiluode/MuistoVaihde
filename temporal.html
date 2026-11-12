@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MuistoVaihde V2 · Self-generating pulse loop</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,Segoe UI,sans-serif;color:#e8eff9;background:#09121f}*{box-sizing:border-box}body{margin:0;padding:24px;background:radial-gradient(ellipse at 30% 0%,#172c44,#09121f 76%);min-height:100vh}main{max-width:1120px;margin:auto}h1{font-size:clamp(1.6rem,3vw,2.5rem);margin:0;letter-spacing:-.04em}h1 span{color:#72d8c4}p{color:#aebfd0;line-height:1.55;margin:7px 0 14px}a{color:#8fd6eb}.grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(280px,1fr);gap:16px}section{background:#111e2d;border:1px solid #35465d;border-radius:14px;padding:17px;min-width:0}h2{font-size:1.02rem;margin:0 0 10px}canvas{display:block;width:100%;max-width:480px;height:auto;margin:auto}.legend{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;color:#adbed3;font-size:.8rem}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}.buttons{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}button{font:inherit;cursor:pointer;background:#25384d;color:#eff7ff;padding:8px 12px;border:1px solid #4a647f;border-radius:8px}button:hover{background:#355476}button.primary{background:#14645c;border-color:#41b5a3}button:focus-visible{outline:2px solid #7fe8cd;outline-offset:2px}.matrix{display:grid;grid-template-columns:38px repeat(6,minmax(0,1fr));gap:4px;margin:8px 0}.cell{background:#1c3143;border-radius:5px;min-height:31px;display:grid;place-items:center;font-size:.75rem;font-variant-numeric:tabular-nums}.axis{color:#a6bbcf;background:none}.history{background:#0b1726;border:1px solid #2c4860;padding:12px;border-radius:9px;min-height:112px;font-family:ui-monospace,Consolas,monospace;font-size:.85rem;white-space:pre-wrap;line-height:1.6;color:#e0ecea}.stat{display:flex;justify-content:space-between;gap:12px;color:#a6bad0;font-size:.87rem}.stat strong{color:#edf5ff}small{color:#8fa5bd}footer{margin:17px 0;color:#9baec6;font-size:.85rem}@media(max-width:830px){.grid{grid-template-columns:1fr}body{padding:14px}}
+</style></head>
+<body><main>
+<header><h1>MuistoVaihde <span>V2 / The Generating Loop</span></h1><p>One learned transition produces the next pulse. It travels through a seven-tick ring and becomes the next input. External observations can interrupt it; only observations are allowed to teach.</p></header>
+<div class="grid">
+<section><h2>Seven-slot event circuit</h2><canvas id="ring" width="560" height="410" aria-label="Circulating pulse on seven positions"></canvas><div class="legend"><span><i class="dot" style="background:#68b3f9"></i>Self-generated</span><span><i class="dot" style="background:#e4b36b"></i>World input</span><span><i class="dot" style="background:#6fdcc0"></i>Gate</span></div>
+<div class="buttons"><button class="primary" id="teach">Teach P → A → B → END</button><button id="shuffle">Teach shuffled order</button><button id="conflict">Teach conflicting histories</button></div>
+<div class="buttons"><button class="primary" id="replay">Replay from P</button><button id="replayQ">Replay from Q</button><button id="cut">Cut feedback</button><button id="surprise">World says C instead</button></div>
+<div class="buttons"><button id="step">Step one tick</button><button id="play">Play / pause</button><button id="clear">Erase weights</button></div>
+<div class="stat"><span>Simulation tick: <strong id="tick">0</strong></span><span>In-flight pulses: <strong id="count">0</strong></span><span>Learning writes: <strong id="writes">0</strong></span></div>
+</section>
+<section><h2>Directed transition strengths</h2><div id="matrix" class="matrix" aria-label="Learned directed transition matrix"></div><small>The strongest unique learned successor is selected. Exact ties abstain. An explicit END stops the loop.</small>
+<h2 style="margin-top:20px">Event trace</h2><div class="history" id="history" aria-live="polite">Teach a chain. Replay to inspect the trace, or Play / pause to watch it move.</div><p id="message">Ready. No weights have been learned.</p><h2>What this proves — and does not</h2><p>This page implements a discrete seven-slot delay line and a simple supervised transition table. Self-generated pulses are <strong>not</strong> treated as external proof. This is a sequence-learning control, not biological apical-tuft learning or a native Geometric Neuron.</p></section>
+</div><footer><a href="index.html">Back to V1 / 5×7 meeting junction</a> · <a href="https://github.com/anttiluode/MuistoVaihde">Source and tests</a> · Everything runs offline.</footer>
+</main>
+<script>
+'use strict';
+const TOKENS=['P','A','B','Q','C','END'], LAP=7;
+class Loop {
+  constructor(){this.weights=Object.fromEntries(TOKENS.map(a=>[a,Object.fromEntries(TOKENS.map(b=>[b,0]))]));this.reset();}
+  reset(){this.ring=Array(LAP).fill(null);this.time=0;this.previous=null;this.writes=0;}
+  predict(a){if(a==='END')return null;const row=this.weights[a],mx=Math.max(...TOKENS.map(b=>row[b]));return mx<.55||TOKENS.filter(b=>row[b]>=mx-1e-12).length!==1?null:TOKENS.find(b=>row[b]===mx);}
+  tick(world=null,learn=false,feedback=true){
+    const arriving=this.ring[0],token=world??arriving;let event=null,sent=null;
+    if(token!==null){let wrote=null;
+      if(world!==null){
+        if(learn&&this.previous&&this.time-this.previous[1]===LAP&&this.previous[0]!=='END'){
+          const p=this.previous[0],old=this.weights[p][world];this.weights[p][world]=old+.4*(1-old);wrote=[p,world];this.writes++;
+        }
+        this.previous=world==='END'?null:[world,this.time];
+      }
+      if(feedback&&token!=='END')sent=this.predict(token);
+      event={tick:this.time,token,origin:world!==null?'world':'self',expected:world!==null?arriving:null,mismatch:world!==null&&arriving!==null&&arriving!==world,wrote,sent};
+    }
+    if(world!==null)this.ring=Array(LAP).fill(null);
+    this.ring[0]=sent;this.ring.push(this.ring.shift());this.time++;
+    return event;
+  }
+  teach(sequence,repeats=8){for(let i=0;i<repeats;i++){this.reset();sequence.forEach((symbol,j)=>{if(j)for(let k=0;k<LAP-1;k++)this.tick(null,false,false);this.tick(symbol,true,false);});}this.reset();}
+  replay(seed='P',feedback=true){this.reset();const ev=[this.tick(seed,false,feedback)];for(let i=0;i<LAP*9;i++){const next=this.tick(null,false,feedback);if(next)ev.push(next);if(next?.token==='END')break;}return ev;}
+}
+let sim=new Loop(),trace=[],timer=null,latest=null;
+const $=id=>document.getElementById(id),showMessage=message=>{$('message').textContent=message};
+function stop(){if(timer){clearInterval(timer);timer=null;$('play').textContent='Play / pause'}}
+function addEvent(e){if(!e)return;latest=e;trace.push(e);if(trace.length>24)trace.shift();}
+function resetTrace(){trace=[];latest=null;}
+function render(){
+  $('tick').textContent=sim.time;$('count').textContent=sim.ring.filter(Boolean).length;$('writes').textContent=sim.writes;
+  let canvas=$('ring'),ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height;ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='#39516d';ctx.lineWidth=13;ctx.beginPath();ctx.arc(255,196,130,0,Math.PI*2);ctx.stroke();
+  for(let i=0;i<LAP;i++){
+    let angle=-Math.PI/2+i*Math.PI*2/LAP,x=255+130*Math.cos(angle),y=196+130*Math.sin(angle),p=sim.ring[i];
+    ctx.beginPath();ctx.fillStyle=p?'#64b6f9':'#243f5a';ctx.strokeStyle=i===0?'#70dfb9':'#4d6985';ctx.lineWidth=i===0?5:2;ctx.arc(x,y,i===0?25:23,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.fillStyle=p?'#091826':'#d7e7f8';ctx.font='bold 15px system-ui';ctx.textAlign='center';ctx.fillText(p??String(i),x,y+5);
+  }
+  ctx.fillStyle='#d2e2f4';ctx.font='bold 18px system-ui';ctx.textAlign='center';ctx.fillText('7-tick',255,183);ctx.fillText('delay loop',255,207);
+  ctx.fillStyle='#74ddc4';ctx.font='14px system-ui';ctx.fillText('Junction',255,22);
+  ctx.font='12px system-ui';ctx.fillStyle='#aabdd3';ctx.fillText('The emitted pulse returns here after exactly 7 ticks',255,392);
+  let html='<div class="cell axis"></div>'+TOKENS.map(b=>'<div class="cell axis">'+b+'</div>').join('');
+  for(const a of TOKENS){html+='<div class="cell axis">'+a+'</div>';for(const b of TOKENS){const value=sim.weights[a][b];html+=`<div class="cell" title="${a} → ${b}: ${value.toFixed(4)}" style="background:rgba(49,193,168,${(.07+value*.68).toFixed(3)})">${value.toFixed(2)}</div>`;}}
+  $('matrix').innerHTML=html;
+  $('history').textContent=trace.length?trace.map(e=>`${String(e.tick).padStart(3)}  ${e.origin==='world'?'WORLD':'SELF '}  ${e.token.padEnd(3)}${e.mismatch?'  ⚠ mismatch (expected '+e.expected+')':''}${e.wrote?'   write '+e.wrote.join('→'):''}${e.sent?'   send '+e.sent:''}${e.token==='END'?'  STOP':''}`).join('\n'):'No events. Teach and replay.';
+}
+function restart(){stop();sim.reset();resetTrace();render()}
+function prep(sequence,message){stop();sim=new Loop();sim.teach(sequence);resetTrace();render();showMessage(message)}
+$('teach').onclick=()=>prep(['P','A','B','END'],'Trained P → A → B → END. Replay P to remove all external input after the seed.');
+$('shuffle').onclick=()=>prep(['P','B','A','END'],'Control: shuffled order was trained. It should replay P → B → A → END.');
+$('conflict').onclick=()=>{stop();sim=new Loop();sim.teach(['P','A','B','END']);sim.teach(['Q','A','C','END']);resetTrace();render();showMessage('Two histories share A but demand different next events. A has an exact tie: replay stops at A. Context is still missing.')};
+function replay(seed,feedback=true){stop();resetTrace();const es=sim.replay(seed,feedback);es.forEach(addEvent);render();showMessage(es.map(e=>e.token).join(' → ')+(feedback?' (one external seed; rest self-generated).':' (feedback disabled).'))}
+$('replay').onclick=()=>replay('P');$('replayQ').onclick=()=>replay('Q');$('cut').onclick=()=>replay('P',false);
+$('surprise').onclick=()=>{stop();sim.reset();resetTrace();addEvent(sim.tick('P',false,true));for(let i=0;i<LAP-1;i++)sim.tick();const e=sim.tick('C',false,true);addEvent(e);render();showMessage(e.mismatch?'World C overrode expected A. No learning from imagined A.':'No prediction was waiting; teach P→A first.')};
+$('step').onclick=()=>{stop();if(!trace.length&&sim.ring.every(x=>x===null))addEvent(sim.tick('P',false,true));else addEvent(sim.tick());render()};
+$('play').onclick=()=>{if(timer){stop();return}if(sim.ring.every(x=>x===null)){sim.reset();resetTrace();addEvent(sim.tick('P',false,true));render()}timer=setInterval(()=>{const e=sim.tick();addEvent(e);render();if(e?.token==='END')stop()},160);$('play').textContent='Pause'};
+$('clear').onclick=()=>{stop();sim=new Loop();resetTrace();render();showMessage('Learned weights erased. Untrained feedback produces nothing after P.')};
+render();
+</script></body></html>
