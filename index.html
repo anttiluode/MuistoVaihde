@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MuistoVaihde · Memory Switchyard</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#09101b;color:#e4ebf6}
+*{box-sizing:border-box}body{margin:0;padding:24px;line-height:1.5;background:radial-gradient(ellipse at 30% 0,#12233a,#09101b 70%)}main{max-width:1160px;margin:auto}
+header{margin-bottom:18px}h1{font-size:clamp(1.8rem,4vw,2.75rem);letter-spacing:-.04em;margin:0}h1 span{color:#71ded1}p{color:#a9bacd;margin:7px 0}
+.layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(290px,1fr);gap:16px}section{border:1px solid #2b3c55;background:#111b2af0;border-radius:16px;padding:16px;min-width:0}h2{font-size:1rem;margin:0 0 10px;color:#e7f0fc}
+canvas{display:block;width:100%;height:auto;aspect-ratio:760/570;cursor:crosshair}button,select{font:inherit;border:1px solid #47647f;background:#23354e;color:#e5f0fa;padding:9px 11px;border-radius:8px;cursor:pointer}button:hover{background:#325172}button.primary{background:#125a59;border-color:#30a89f}button.primary:hover{background:#1b7771}
+.buttons{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0 14px}label{display:flex;align-items:center;gap:8px;color:#cbd7e9;font-size:.87rem;margin:8px 0}
+label input{width:100%}select{max-width:150px}small,.foot{color:#94a9bf}.stats{display:flex;gap:16px;flex-wrap:wrap;font-variant-numeric:tabular-nums;color:#b3c4d6;font-size:.9rem}
+.heat{display:grid;grid-template-columns:24px repeat(7,minmax(0,1fr));gap:4px;margin-top:12px}.cell{min-width:0;aspect-ratio:1.1;display:grid;place-items:center;border-radius:4px;background:#182536;border:1px solid #34475c;font-size:.65rem;color:#c0d0e2;font-variant-numeric:tabular-nums}.axis{display:grid;place-items:center;color:#879cb6;font-size:.75rem}
+.log{padding:10px;border:1px solid #2d435d;border-radius:8px;min-height:76px;color:#91e1d6;background:#0a1521;font-size:.85rem;white-space:pre-wrap}.legend{display:flex;gap:15px;flex-wrap:wrap;font-size:.8rem;color:#acbbce}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}.foot{margin-top:16px;font-size:.82rem}
+@media(max-width:850px){.layout{grid-template-columns:1fr}body{padding:13px}section{padding:12px}}
+</style></head><body><main>
+<header><h1>Muisto<span>Vaihde</span></h1><p>THE MEMORY SWITCHYARD · 5-cell ring A + 7-cell ring B · 35 learnable meetings · a 35-cell record ring C</p></header>
+<div class="layout"><section>
+<h2>Rotating memory rings</h2>
+<canvas id="rings" width="760" height="570" aria-label="Interactive diagram of three rotating memory rings"></canvas>
+<div class="legend"><span><i class="dot" style="background:#5ac8e2"></i>A: cue</span><span><i class="dot" style="background:#f0b465"></i>B: target</span><span><i class="dot" style="background:#c09cff"></i>C: joint record</span></div>
+<p><small>Click individual cells to toggle bits. Cell numbers are fixed identities even while the rings rotate. The simulation uses one shared discrete tick.</small></p>
+<div class="stats"><span id="tickstat">Tick 0</span><span id="modestat">Idle</span><span id="weightstat">0 active pairs</span></div>
+</section><section>
+<h2>1 · Teach / probe / bind</h2>
+<div class="buttons"><button id="teachx" class="primary">Teach X ×10</button><button id="teachy" class="primary">Teach Y ×10</button></div>
+<div class="buttons"><button id="recallx">Recall X</button><button id="recally">Recall Y</button><button id="bindx">Bind X → C</button></div>
+<p><small>X: A{1} ↔ B{2,5} · Y: A{3} ↔ B{1,4}. Each quick action resets circulating bits but retains weights.</small></p>
+<h2>2 · Inspect one tick at a time</h2>
+<div class="buttons"><button id="loadx">Load X pair</button><button id="loady">Load Y pair</button><button id="cuex">Load A cue</button></div>
+<label>Action <select id="mode"><option value="idle">Idle / decay</option><option value="teach">Teach coincidence</option><option value="recall">Recall missing B</option><option value="bind">Bind into C</option></select></label>
+<div class="buttons"><button id="step" class="primary">Step</button><button id="play">Play</button><button id="pause">Pause</button></div>
+<h2>3 · Plasticity</h2>
+<label>Learning strength <input type="range" id="eta" min="0" max="1" step="0.01" value="0.30"><output id="etav">0.30</output></label>
+<label>Decay / tick <input type="range" id="decay" min="0" max="0.01" step="0.0001" value="0.0002"><output id="decayv">0.0002</output></label>
+<label>Gate threshold <input type="range" id="threshold" min="0.05" max="0.95" step="0.05" value="0.55"><output id="thresholdv">0.55</output></label>
+<div class="buttons"><button id="idle">Idle 5000 ticks</button><button id="erase">Erase everything</button></div>
+<h2>Learned phase-pair matrix (A rows · B columns)</h2><div id="heat" class="heat" aria-label="5 by 7 learned weights"></div>
+<div class="log" id="log" aria-live="polite">No events yet. Teach X, then try Recall X or Bind X.</div>
+</section></div>
+<p class="foot">A deliberately small, standard classical model. The 35-entry junction is an associative lookup table with local coincidence updates; it cannot distinguish separate episodes sharing the same cue. Ring C records a conjunction, not information created from nothing. No neural or clock-free implementation is claimed.</p>
+</main><script>
+'use strict';
+// This browser implementation mirrors muistovaihde.py. No libraries or network.
+const NA=5, NB=7, NC=35, TAU=2*Math.PI;
+const $=id=>document.getElementById(id);
+const model={A:Array(NA).fill(0),B:Array(NB).fill(0),C:Array(NC).fill(0),
+ w:Array.from({length:NA},()=>Array(NB).fill(0)),t:0,oa:0,ob:0,oc:0,
+ eta:.30,decay:.0002,threshold:.55,mode:'idle',last:'',timer:null};
+function crt(a,b){for(let c=0;c<NC;c++)if(c%NA===a%NA&&c%NB===b%NB)return c;throw Error('CRT');}
+function setPattern(a=[],b=[],pa=0,pb=0){model.A=Array.from({length:NA},(_,i)=>+a.includes(i));
+ model.B=Array.from({length:NB},(_,i)=>+b.includes(i));model.C.fill(0);model.t=0;
+ model.oa=((pa%NA)+NA)%NA;model.ob=((pb%NB)+NB)%NB;model.oc=crt(model.oa,model.ob);model.last='Fast state reset; weights preserved.';}
+function indices(){let a=(model.oa-model.t%NA+NA)%NA,b=(model.ob-model.t%NB+NB)%NB,c=(model.oc-model.t%NC+NC)%NC;
+ if(c%NA!==a||c%NB!==b)throw Error('Misaligned C ring');return {a,b,c};}
+function tick(){let {a,b,c}=indices(),action='';
+ for(let row of model.w)for(let j=0;j<NB;j++)row[j]*=(1-model.decay);
+ if(model.mode==='teach'&&model.A[a]&&model.B[b]){let w=model.w[a][b];model.w[a][b]=w+model.eta*(1-w);action=`LEARN A${a} + B${b}`;}
+ else if(model.mode==='recall'&&model.A[a]&&model.w[a][b]>=model.threshold&&!model.B[b]){model.B[b]=1;action=`RECALL B${b} from A${a}`;}
+ else if(model.mode==='bind'&&model.A[a]&&model.B[b]&&model.w[a][b]>=model.threshold&&!model.C[c]){model.C[c]=1;action=`BIND (A${a},B${b}) → C${c}`;}
+ model.t++;if(action)model.last=`tick ${model.t-1}: ${action}`;return action;}
+function batch(n){let count=0;for(let i=0;i<n;i++)if(tick())count++;return count;}
+function mode(m){model.mode=m;$('mode').value=m;}
+function note(s){model.last=s;draw();}
+function stop(){if(model.timer!==null){clearInterval(model.timer);model.timer=null;}$('play').textContent='Play';}
+function preset(which){stop();if(which==='x'){setPattern([1],[2,5]);mode('teach');}
+ else if(which==='y'){setPattern([3],[1,4]);mode('teach');}
+ else{setPattern([1],[]);mode('recall');}draw();}
+function teach(which){stop();let x=which==='x';setPattern(x?[1]:[3],x?[2,5]:[1,4]);mode('teach');let count=batch(350);
+ note(`Taught ${which.toUpperCase()} for 10 complete 35-tick laps. ${count} coincidences strengthened. Weights remain available for later probes.`);}
+function recall(which){stop();let x=which==='x';setPattern(x?[1]:[3],[]);mode('recall');let count=batch(35);
+ const b=model.B.flatMap((v,i)=>v?[i]:[]);note(`Cue ${which.toUpperCase()}: reconstructed B={${b.join(', ')}}; ${count} new bits. Expected ${x?'{2, 5}':'{1, 4}'} after teaching.`);}
+function bindX(){stop();setPattern([1],[2,5]);mode('bind');let count=batch(35);
+ const pairs=model.C.flatMap((v,i)=>v?[`(${i%NA},${i%NB})`]:[]);
+ note(`Ring C wrote ${count} joint events: ${pairs.join(', ')||'none'}. Only learned, simultaneously occupied pairs qualify.`);}
+const canvas=$('rings'),ctx=canvas.getContext('2d');let clickable=[];
+function circle(x,y,r,fill,stroke='#0000',lw=1){ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.stroke();}
+function line(x1,y1,x2,y2,stroke,width=2){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.strokeStyle=stroke;ctx.lineWidth=width;ctx.stroke();}
+function label(txt,x,y,size=16,color='#b9c9d9',align='center'){
+ ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.font=`${size}px system-ui`;ctx.fillText(txt,x,y);}
+function drawRing(R,cx,cy,r,start,at,size,bright,dim,key){
+ circle(cx,cy,r+12,'#142338','#263d53',2);circle(cx,cy,r-15,'#0c1725','#203449',2);
+ ctx.beginPath();ctx.arc(cx,cy,r,0,TAU);ctx.strokeStyle='#48637b';ctx.lineWidth=3;ctx.stroke();
+ for(let i=0;i<size;i++){let ang=start+TAU*(i-at)/size,x=cx+r*Math.cos(ang),y=cy+r*Math.sin(ang),on=R[i];
+ let rr=key==='C'?5.5:13.0;
+ circle(x,y,rr,on?bright:dim,i===at?'#eef7ff':'#46617a',i===at?2.5:1);
+ if(key!=='C')label(String(i),x,y,11,on?'#08131d':'#b9c6d6');
+ clickable.push({x,y,rr:rr+5,key,index:i});
+ }
+}
+function draw(){ctx.clearRect(0,0,760,570);clickable=[];
+ const {a,b,c}=indices();let active=model.w.flat().filter(x=>x>=model.threshold).length;
+ // Tracks carry a rotating bit; the fixed junction is between A and B.
+ line(346,201,382,201,'#637f9a',9);line(346,201,382,201,'#e6bf75',2);
+ line(364,218,364,344,'#465f91',3);line(382,344,364,344,'#465f91',3);
+ drawRing(model.A,214,205,132,0,a,NA,'#5ac8e2','#284d64','A');
+ drawRing(model.B,509,205,116,Math.PI,b,NB,'#f0b465','#694e33','B');
+ drawRing(model.C,380,448,81,-Math.PI/2,c,NC,'#c09cff','#3b3459','C');
+ circle(364,201,15,'#c6aa72','#fff0c8',3);circle(364,201,5,model.last.includes('BIND')?'#cdadfc':'#ffefce');
+ circle(380,344,7,'#bc94ed','#f7e2ff',1.5);
+ label('A · cue',214,205,21,'#76d6e7');label('B · target',509,205,21,'#f7be77');
+ label('C · joint memory',380,445,15,'#c5a8ff');label(`${model.C.filter(Boolean).length} bits`,380,466,12,'#aeb8d1');
+ label('learning junction',364,158,13,'#d9c8a9');
+ label(`current pair (${a},${b})  →  C${c}`,380,552,14,'#d6dce8');
+ $('tickstat').textContent=`Tick ${model.t}`;$('modestat').textContent=model.mode.toUpperCase();
+ $('weightstat').textContent=`${active} / 35 open pairs`;
+ $('log').textContent=model.last||'No events yet.';
+ const cells=document.querySelectorAll('.heat .wcell');for(let cell of cells){let aa=+cell.dataset.a,bb=+cell.dataset.b,w=model.w[aa][bb];
+ cell.textContent=w.toFixed(2);cell.title=`A${aa} / B${bb} = ${w.toFixed(5)}`;
+ cell.style.background=`rgba(245,167,81,${(0.06+0.86*w).toFixed(3)})`;
+ cell.style.borderColor=w>=model.threshold?'#ffe0a8':'#34475c';
+ cell.style.color=w>.55?'#101721':'#d4dce7';}
+}
+let heat=$('heat');heat.insertAdjacentHTML('beforeend','<span class="axis">A\\B</span>');
+for(let j=0;j<NB;j++)heat.insertAdjacentHTML('beforeend',`<span class="axis">${j}</span>`);
+for(let i=0;i<NA;i++){heat.insertAdjacentHTML('beforeend',`<span class="axis">${i}</span>`);
+for(let j=0;j<NB;j++)heat.insertAdjacentHTML('beforeend',`<span class="cell wcell" data-a="${i}" data-b="${j}">0.00</span>`);}
+$('teachx').onclick=()=>teach('x');$('teachy').onclick=()=>teach('y');$('recallx').onclick=()=>recall('x');$('recally').onclick=()=>recall('y');$('bindx').onclick=bindX;
+$('loadx').onclick=()=>preset('x');$('loady').onclick=()=>preset('y');$('cuex').onclick=()=>preset('cue');
+$('mode').onchange=()=>{model.mode=$('mode').value;draw();};
+$('step').onclick=()=>{stop();tick();draw();};
+$('play').onclick=()=>{if(model.timer!==null)return;model.timer=setInterval(()=>{tick();draw();},150);$('play').textContent='Running…';};
+$('pause').onclick=stop;
+$('idle').onclick=()=>{stop();mode('idle');let old=model.w.flat().reduce((a,b)=>a+b,0);batch(5000);
+ note(`5000 silent ticks: total weight ${old.toFixed(3)} → ${model.w.flat().reduce((a,b)=>a+b,0).toFixed(3)}.`);};
+$('erase').onclick=()=>{stop();model.w=Array.from({length:NA},()=>Array(NB).fill(0));setPattern();mode('idle');note('Erased all rings and learned weights.');};
+for(let [id,key,out,digits] of [['eta','eta','etav',2],['decay','decay','decayv',4],['threshold','threshold','thresholdv',2]]){
+ $(id).oninput=()=>{model[key]=+$ (id).value;$(out).textContent=model[key].toFixed(digits);draw();};}
+canvas.addEventListener('click',ev=>{stop();const rect=canvas.getBoundingClientRect(),x=(ev.clientX-rect.left)*760/rect.width,y=(ev.clientY-rect.top)*570/rect.height;
+ let hit=clickable.find(z=>Math.hypot(z.x-x,z.y-y)<=z.rr);if(!hit)return;
+ model[hit.key][hit.index]^=1;note(`Toggled ${hit.key}${hit.index} ${model[hit.key][hit.index]?'on':'off'} at tick ${model.t}.`);});
+setPattern([1],[2,5]);mode('teach');note('Ready. The ring cells rotate around a fixed junction. Try Teach X ×10, then Recall X.');
+</script></body></html>
